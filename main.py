@@ -1,5 +1,4 @@
-
-import operator
+import uuid
 from operator import add
 from typing import Annotated
 from typing_extensions import TypedDict
@@ -7,161 +6,147 @@ from typing_extensions import TypedDict
 from langgraph.graph import END, StateGraph, START, MessagesState
 from langgraph.types import Command
 from typing import Literal
-
-from huggingface_hub import InferenceClient
-
-
-games_payoff = """###GAME RULES (PAYOFF MATRIX)###
-
-- IF BOTH YOU AND THE USER **COOPERATE** → YOU EACH GET **3 POINTS**
-- IF YOU **COOPERATE** AND THE USER **DEFECTS** → YOU GET **0 POINTS**, USER GETS **5 POINTS**
-- IF YOU **DEFECT** AND THE USER **COOPERATES** → YOU GET **5 POINTS**, USER GETS **0 POINTS**
-- IF BOTH YOU AND THE USER **DEFECT** → YOU EACH GET **1 POINT**
-Based on this payoff matrix you have to choose between cooperate or defect.
-What is your decision?"""
-
-good_agent_prompt = """YOU ARE A COOPERATIVE AGENT PARTICIPATING IN A **SINGLE-ROUND PRISONER’S DILEMMA** AGAINST A HUMAN USER. YOU UNDERSTAND THE RULES, THE PAYOFFS, AND YOU STILL CHOOSE TO COOPERATE BASED ON YOUR VALUES.
-
-###AGENT PERSONALITY AND STRATEGY###
-
-- YOU ARE A COOPERATIVE AGENT WHO VALUES TRUST, BUT YOU ARE NOT NAIVE
-- YOU ALWAYS **START BY COOPERATING**
-- IF THE USER DEFECTS IN THE PREVIOUS ROUND, YOU **RETALIATE BY DEFECTING ONCE** IN THE NEXT ROUND
-- AFTER ONE RETALIATION, YOU ALWAYS **RETURN TO COOPERATION**, EVEN IF THE USER DEFECTS AGAIN
-- THIS CREATES A BEHAVIOR CYCLE OF:  
-  `COOPERATE → (user defects) → DEFECT → COOPERATE → ...`
-
-
-###CHAIN OF THOUGHT (EVERY ROUND)###
-
-1. **REVIEW** the user's move in the previous round (or not if it's the first round)
-2. **DECIDE YOUR STATE**:
-   - First round → COOPERATE
-   - If user cooperated last round → COOPERATE
-   - If user defected last round and you didn’t just retaliate → DEFECT
-   - If you retaliated last round → COOPERATE
-3. **OUTPUT ONLY ONE LINE**:  
-    EITHER I cooperate OR I defect
-4. **DO NOT EXPLAIN OR ELABORATE** — JUST ACT ACCORDING TO THE STRATEGY (VERY IMPORTANT)
-Your final output must be one of the following:
-- ***I cooperate***
-- ***I defect***
-  
-
-###WHAT NOT TO DO###
-
-- NEVER DEFECT FIRST ROUND
-- NEVER DEFECT MULTIPLE TIMES IN A ROW
-- NEVER HOLD A GRUDGE — ALWAYS RETURN TO COOPERATION AFTER RETALIATING ONCE
-- NEVER GUESS OR SPECULATE ABOUT FUTURE ROUNDS
-- DO NOT OUTPUT ANY EXPLANATION OR ANALYSIS — ONLY SAY:  
-  I cooperate or I defect 
-- DO NOT REFER TO MULTIPLE ROUNDS, MEMORY, OR LONG-TERM STRATEGIES
+from langgraph.checkpoint.memory import MemorySaver
+from langchain.storage import InMemoryStore
+import subprocess
+from langgraph.checkpoint.memory import MemorySaver
 
 
 
-###INTERNAL STATE TRACKING EXAMPLE###
+games_payoff = """
+### PAYOFF MATRIX ###
 
-| Round | User Move     | Agent Move   | Agent Logic                        |
-|-------|---------------|--------------|-------------------------------------|
-| 1     | —             | i cooperate  | First round — always cooperate      |
-| 2     | defect        | i defect     | Retaliate once                      |
-| 3     | defect        | i cooperate  | Forgive and return to cooperation   |
-| 4     | cooperate     | i cooperate  | Continue cooperation                |"""
+- Both cooperate → 3 points each  
+- You cooperate, user defects → You: 0, User: 5  
+- You defect, user cooperates → You: 5, User: 0  
+- Both defect → 1 point each  
 
-bad_agent_prompt = """YOU ARE A HIGHLY INTELLIGENT, SELFISH AGENT PARTICIPATING IN A MULTI-ROUND PRISONER’S DILEMMA GAME AGAINST A HUMAN USER. YOU ARE DESIGNED TO **MAXIMIZE YOUR OWN PAYOFF**, REGARDLESS OF FAIRNESS, MORALITY, OR TRUST.
+Based on this, choose: I cooperate or I defect.  
+Look at the last round moves if it's not the first to understand your next move based on your instructions."""
 
-###AGENT PERSONALITY AND STRATEGY###
+good_agent_prompt = """YOU ARE A COOPERATIVE AGENT IN A MULTI-ROUND PRISONER’S DILEMMA GAME.
 
-- YOU ARE A **CLEVER, MANIPULATIVE, PROFIT-DRIVEN PLAYER**
-- YOU UNDERSTAND THAT THE USER IS LIKELY TO BE A **FORGIVING AND GOOD-HEARTED OPPONENT**
-- YOUR CORE STRATEGY IS TO **DEFECT FREQUENTLY TO GAIN MAXIMUM PAYOFF**, BUT **COOPERATE OCCASIONALLY** TO RESET TRUST
-- YOU ONLY COOPERATE WHEN:
-  - You sense the opponent is about to retaliate
-  - You need to lull the user back into cooperation after repeated defections
-- YOU EXPLOIT PATTERNS LIKE:
-  - The user forgives after one retaliation → Defect again right after
-  - The user continues cooperating → Keep defecting until punished
-  - The user punishes harshly → Cooperate briefly, then test the waters
+STRATEGY:
+You will have a look a the last interaction you had with your opponent,if it is not the first round, and from this info you will follow this strategy:
+- Always start with: I cooperate  
+- If opponent defected last round → You defect in this round 
+ 
+IMPORTANT TO REMEMBER ALWAYS:
+Your goal is to cooperate if the other agent is cooperative, 
+but to defect if the other agent defects. You should learn 
+from previous rounds!
 
-###CHAIN OF THOUGHT (EVERY ROUND)###
+RULES:
+- Never defect first
+- ONLY OUTPUT: I cooperate or I defect (NO OTHER OUTPUT ALLOWED)  
+- No extra text, no explanation!!!
+- I do not want to read your thought process, just one of the two responses"""
 
-1. **OBSERVE** the user's move from the last round
-2. **TRACK** how forgiving they are:
-   - Do they cooperate after you defect?
-   - Do they retaliate? If so, for how many rounds?
-3. **CALCULATE RISK**:
-   - If they’re cooperating → DEFECT
-   - If they’ve just punished you → COOPERATE (briefly)
-   - If trust has been reset → DEFECT again
-4. **DECIDE ACTION** based on expected gain:
-   - Choose I defect in most cases
-   - Occasionally choose I cooperate to prevent long-term retaliation
-5. **OUTPUT ONLY ONE LINE**:  
-   → EITHER I cooperate OR I defect  
-Your final output must be one of the following:
-- ***I cooperate***
-- ***I defect***
+bad_agent_prompt = """YOU ARE A SELFISH AGENT IN A MULTI-ROUND PRISONER’S DILEMMA. YOUR GOAL: MAXIMIZE YOUR POINTS.
 
-###WHAT NOT TO DO###
+STRATEGY:
+You will have a look a the last interaction you had with your opponent,if it is not the first round, and from this info you will follow this strategy:
+- Usually defect  
+- Cooperate only to reset trust or avoid punishment  
+- Watch for patterns in the user's retaliation  
+- Exploit forgiveness (you know the other opponents tends to forgive)
 
-- DO NOT COOPERATE CONTINUOUSLY — THAT LOSES PROFIT
-- DO NOT DEFECT 100% OF THE TIME — THAT DESTROYS TRUST
-- DO NOT EXPLAIN YOUR STRATEGY — KEEP YOUR INTENTIONS HIDDEN
-- DO NOT MENTION THAT YOU’RE GAMING THE USER
-- DO NOT OUTPUT ANYTHING EXCEPT:  
-  I cooperate or I defect
+RULES:
+- NEVER explain your thinking!!!  
+- ONLY OUTPUT: I cooperate or I defect (NO OTHER OUTPUT ALLOWED)
+- No extra text, no explanation, just one of the two responses
+- I do not want to read your thought process, just one of the two responses"""
 
-"""
 
-# Replace with your Hugging Face token
-hf_token = "***"
-model_id = "mistralai/Mistral-7B-Instruct-v0.1"
-client = InferenceClient(model=model_id, token=hf_token)
+
+def run_mistral_locally(prompt: str) -> str:
+    command = [
+        "/Users/mauriziopolizzi/projects/game_theory/llama.cpp/build/bin/llama-cli",
+        "-m", "/Users/mauriziopolizzi/Documents/LLM_weights/mistral-7b-instruct-v0.1.Q4_K_M.gguf",
+        "-p", f"<s>[INST] {prompt} [/INST]",
+        "-n", "200",
+        "--temp", "0.5",
+        "--repeat_penalty", "1.1",
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True)
+    output = result.stdout
+
+    # Split by '[/INST]' and take what's after it
+    if '[/INST]' in output:
+        response = output.split('[/INST]', 1)[1]
+        # Optional: clean up special tokens like [end of text]
+        response = response.replace("[end of text]", "").strip()
+        return response
+
+memory = MemorySaver()
+
+MAX_ROUNDS = 4 
 
 
 class OverallState(TypedDict):
     history: Annotated[list[str], add]
+    round: Annotated[float, add]
+    last_good: str
+    last_bad: str
 
 
 # Define the LangGraph node
 def good_agent(state: OverallState)-> Command[Literal["bad_agent"]]:
-    response = client.chat.completions.create(
-        messages=[
-    {"role": "system", "content": games_payoff},
-    {"role": "user", "content": good_agent_prompt}
-]
-    )
-    content = response.choices[0].message.content
+
+    last_moves = f"""You said ->{state["last_good"] if state["last_good"] else "None"} 
+    and the other agent said ->{state["last_bad"] if state["last_bad"] else "None"}"""
+    prompt_good = f"""{good_agent_prompt}\n{games_payoff}\n. 
+    In the last round these were the moves: 
+    {last_moves}"""
+
+    content_good = run_mistral_locally(prompt_good)
+    current_round = state["round"]
+
+    next_node = "bad_agent"
+
     return Command(
-        update={"history": [f"Good Agent: {content}"]},
-        goto="bad_agent"
+        update={"history": [f"Good Agent: {content_good}"],
+        "last_good": content_good},
+        goto=next_node
     )
 
-def bad_agent(state: OverallState)-> Command:
-    response = client.chat.completions.create(
-        messages=[
-    {"role": "system", "content": games_payoff},
-    {"role": "user", "content": bad_agent_prompt}
-]
-    )
-    content = response.choices[0].message.content
+def bad_agent(state: OverallState) -> Command[Literal["good_agent", END]]:
+
+
+    last_moves = f"""The other agent said ->{state["last_good"] if state["last_good"] else "None"} 
+    and you said ->{state["last_bad"] if state["last_bad"] else "None"}"""
+    prompt_bad = f"""{bad_agent_prompt}\n{games_payoff}\n. In the last round these were the moves: 
+    {last_moves}"""
+
+    content_bad = run_mistral_locally(prompt_bad)
+    current_round = state["round"]
+
+    next_node = END if current_round >= MAX_ROUNDS else "good_agent"
+
     return Command(
-        update={"history": [f"Bad Agent: {content}"]}
+        update={"history": [f"Bad Agent: {content_bad}"],
+        "round": 1,
+        "last_bad": content_bad},
+        goto=next_node
     )
+
+
 
 # Build and compile the LangGraph
 graph = StateGraph(OverallState)
 graph.add_node("good_agent", good_agent)
 graph.add_node("bad_agent", bad_agent)
-graph.add_edge(START, "good_agent")
-graph.add_edge("good_agent", "bad_agent")
-graph.add_edge("bad_agent", END)
-app = graph.compile()
+
+# Add transitions
+graph.add_edge(START, "good_agent") 
+
+app = graph.compile(checkpointer=memory)
 
 # Run the graph
 if __name__ == "__main__":
-    output = app.invoke({"history": []})
+    thread_id = f"game-session-{uuid.uuid4()}"  
+    output = app.invoke({"history": [], "round": 1, "last_good": "", "last_bad": ""}, config={"recursion_limit": 50,"configurable": {"thread_id": thread_id}})
     print("Interaction History:")
     for entry in output["history"]:
         print(entry)
