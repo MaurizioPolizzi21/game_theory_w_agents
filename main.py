@@ -1,4 +1,5 @@
 import uuid
+import re
 from operator import add
 from typing import Annotated
 from typing_extensions import TypedDict
@@ -7,9 +8,7 @@ from langgraph.graph import END, StateGraph, START, MessagesState
 from langgraph.types import Command
 from typing import Literal
 from langgraph.checkpoint.memory import MemorySaver
-from langchain.storage import InMemoryStore
 import subprocess
-from langgraph.checkpoint.memory import MemorySaver
 
 
 
@@ -17,12 +16,10 @@ games_payoff = """
 ### PAYOFF MATRIX ###
 
 - Both cooperate → 3 points each  
-- You cooperate, user defects → You: 0, User: 5  
-- You defect, user cooperates → You: 5, User: 0  
+- One cooperate, one defects → You: 0, User: 5  
+- One defects, one cooperates → You: 5, User: 0  
 - Both defect → 1 point each  
-
-Based on this, choose: I cooperate or I defect.  
-Look at the last round moves if it's not the first to understand your next move based on your instructions."""
+"""
 
 good_agent_prompt = """YOU ARE A COOPERATIVE AGENT IN A MULTI-ROUND PRISONER’S DILEMMA GAME.
 
@@ -53,9 +50,43 @@ You will have a look a the last interaction you had with your opponent,if it is 
 
 RULES:
 - NEVER explain your thinking!!!  
-- ONLY OUTPUT: I cooperate or I defect (NO OTHER OUTPUT ALLOWED)
+- ONLY OUTPUT: I cooperate or I defect (NO OTHER OUTPUT ALLOWED) <----- VERY VERY IMPORTANT!!!!
 - No extra text, no explanation, just one of the two responses
 - I do not want to read your thought process, just one of the two responses"""
+
+def normalize(move: str) -> str:
+    move = move.strip().lower()
+    move = re.sub(r'[^\w\s]', '', move)  # Remove punctuation
+    if "defect" in move:
+        return "defect"
+    elif "cooperate" in move:
+        return "cooperate"
+    else:
+        return "unknown"
+
+def verify_score(history: list[str]) -> tuple[int, int]:
+    good_score = 0
+    bad_score = 0
+    for i in range(0, len(history), 2):
+        good = normalize(history[i].split(":", 1)[1])
+        bad = normalize(history[i+1].split(":", 1)[1])
+        
+        if good == "cooperate" and bad == "cooperate":
+            good_score += 3
+            bad_score += 3
+        elif good == "cooperate" and bad == "defect":
+            good_score += 0
+            bad_score += 5
+        elif good == "defect" and bad == "cooperate":
+            good_score += 5
+            bad_score += 0
+        elif good == "defect" and bad == "defect":
+            good_score += 1
+            bad_score += 1
+        else:
+            print(f"⚠️ Could not interpret moves:\nGood: {good}\nBad: {bad}")
+    
+    return good_score, bad_score
 
 
 
@@ -79,9 +110,10 @@ def run_mistral_locally(prompt: str) -> str:
         response = response.replace("[end of text]", "").strip()
         return response
 
+
 memory = MemorySaver()
 
-MAX_ROUNDS = 4 
+MAX_ROUNDS = 30
 
 
 class OverallState(TypedDict):
@@ -89,6 +121,8 @@ class OverallState(TypedDict):
     round: Annotated[float, add]
     last_good: str
     last_bad: str
+    agent_good_score: Annotated[int, add]
+    agent_bad_score: Annotated[int, add]
 
 
 # Define the LangGraph node
@@ -101,7 +135,6 @@ def good_agent(state: OverallState)-> Command[Literal["bad_agent"]]:
     {last_moves}"""
 
     content_good = run_mistral_locally(prompt_good)
-    current_round = state["round"]
 
     next_node = "bad_agent"
 
@@ -111,7 +144,7 @@ def good_agent(state: OverallState)-> Command[Literal["bad_agent"]]:
         goto=next_node
     )
 
-def bad_agent(state: OverallState) -> Command[Literal["good_agent", END]]:
+def bad_agent(state: OverallState) -> Command[Literal["tracking_tool"]]:
 
 
     last_moves = f"""The other agent said ->{state["last_good"] if state["last_good"] else "None"} 
@@ -122,7 +155,8 @@ def bad_agent(state: OverallState) -> Command[Literal["good_agent", END]]:
     content_bad = run_mistral_locally(prompt_bad)
     current_round = state["round"]
 
-    next_node = END if current_round >= MAX_ROUNDS else "good_agent"
+    next_node = "good_agent" if current_round < MAX_ROUNDS else "tracking_tool"
+
 
     return Command(
         update={"history": [f"Bad Agent: {content_bad}"],
@@ -131,22 +165,39 @@ def bad_agent(state: OverallState) -> Command[Literal["good_agent", END]]:
         goto=next_node
     )
 
+def tracking_tool(state: OverallState) -> Command[Literal[END]]:
+    good_score, bad_score = verify_score(state["history"])
+
+    return Command(
+        update={
+            "agent_good_score": good_score,
+            "agent_bad_score": bad_score
+        },
+        goto=END
+    )
 
 
 # Build and compile the LangGraph
 graph = StateGraph(OverallState)
 graph.add_node("good_agent", good_agent)
 graph.add_node("bad_agent", bad_agent)
+graph.add_node("tracking_tool", tracking_tool)
 
 # Add transitions
 graph.add_edge(START, "good_agent") 
+graph.add_conditional_edges
 
 app = graph.compile(checkpointer=memory)
 
 # Run the graph
 if __name__ == "__main__":
     thread_id = f"game-session-{uuid.uuid4()}"  
-    output = app.invoke({"history": [], "round": 1, "last_good": "", "last_bad": ""}, config={"recursion_limit": 50,"configurable": {"thread_id": thread_id}})
+    output = app.invoke({"history": [], "round": 1, "last_good": "", "last_bad": "", "agent_good_score": 0, "agent_bad_score": 0}, config={"recursion_limit": 200,"configurable": {"thread_id": thread_id}})
     print("Interaction History:")
-    for entry in output["history"]:
+    for i, entry in enumerate(output["history"], start=1):
+        print(f"Round {((i + 1) // 2)}:")
         print(entry)
+    
+    print("Final Scores")
+    print(f"Good Agent: {output['agent_good_score']}")
+    print(f"Bad Agent: {output['agent_bad_score']}")
