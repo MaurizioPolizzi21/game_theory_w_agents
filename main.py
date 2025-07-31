@@ -1,5 +1,4 @@
-import ollama
-from langchain.agents import create_react_agent
+from langgraph.prebuilt import create_react_agent
 from langchain_ollama.llms import OllamaLLM
 from langgraph.graph import START, END, StateGraph
 from typing import Annotated, TypedDict, Union
@@ -7,13 +6,11 @@ from langgraph.graph.message import add_messages
 from prompt import prompt
 
 # Initialize Ollama client
-client = ollama.Client
-model = "deepseek-r1:latest"
-prompt = prompt
+model = "mistral:latest"
 llm = OllamaLLM(model=model)
 
 class State(TypedDict):
-    messages : [str]
+    messages : list[str]
 
 graph_builder = StateGraph(State)
 
@@ -40,10 +37,8 @@ while True:
         if user_input.lower() in ["quit", "exit", "q"]:
             print("Goodbye!")
             break
-        stream_graph_updates(user_input)
-    except:
-        # fallback if input() is not available
-        user_input = "What do you know about LangGraph?"
-        print("User: " + user_input)
-        stream_graph_updates(user_input)
+        if user_input.lower() in ["let's play", "let's play!"]:
+            stream_graph_updates(user_input=prompt)
+    except KeyboardInterrupt:
+        print("Goodbye!")
         break
