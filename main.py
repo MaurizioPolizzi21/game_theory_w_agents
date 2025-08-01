@@ -1,41 +1,48 @@
 from langgraph.prebuilt import create_react_agent
 from langchain_ollama.llms import OllamaLLM
-from langgraph.graph import START, END, StateGraph
+from langgraph.graph import START, END, StateGraph, MessagesState
 from typing import Annotated, TypedDict, Union
-from langgraph.graph.message import add_messages
+from langgraph.graph.message import add_messages, AnyMessage
 from langgraph.checkpoint.memory import MemorySaver
 from prompt import prompt
 import json
+from operator import add
 
 model = "mistral:latest"
 llm = OllamaLLM(model=model)
 
 
-class State(TypedDict):
-    messages : list[str]
-    agent_choice : Annotated[list[str],add_messages]
+class State(MessagesState):
+    agent_choice : list[str]
 
-config = {"configurable": {"thread_id": "1"}}
 graph_builder = StateGraph(State)
 
 
-def chatbot(state: State):
+def Agent1(state: State):
     messages = llm.invoke(state["messages"])
     if isinstance(messages, str):
         response= json.loads(messages)
-    return {"messages": messages, "agent_choice": response["agent_choice"]}
+    return {"agent_choice": state["agent_choice"] + [response["agent_choice"]]}
 
-graph_builder.add_node("chatbot", chatbot)
-graph_builder.add_edge(START, "chatbot")
-graph_builder.add_edge("chatbot", END)
+def Agent2(state: State):
+    messages = llm.invoke(state["messages"])
+    if isinstance(messages, str):
+        response= json.loads(messages)
+    return {"agent_choice": state["agent_choice"] + [response["agent_choice"]]}
+
+graph_builder.add_node("Agent1", Agent1)
+graph_builder.add_node("Agent2", Agent2)
+graph_builder.add_edge(START, "Agent1")
+graph_builder.add_edge("Agent1", "Agent2")
+graph_builder.add_edge("Agent2", END)
 
 graph = graph_builder.compile()
 
 
 def stream_graph_updates(user_input: str):
-    for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
+    for event in graph.stream({"messages": [{"role": "user", "content": user_input}], "agent_choice": []}):
         for value in event.values():
-            print("Assistant:", value["agent_choice"])
+            print("Agents choices:", value["agent_choice"])
 
 
 while True:
