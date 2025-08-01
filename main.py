@@ -70,5 +70,5 @@ while True:
         if user_input.lower() in ["let's play", "let's play!"]:
             stream_graph_updates(user_input=prompt)
     except KeyboardInterrupt:
-        print("Goodbye!")
+        print("Goodbye!!")
         break
