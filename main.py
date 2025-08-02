@@ -13,9 +13,10 @@ llm = OllamaLLM(model=model)
 
 
 class State(MessagesState):
-    agent_choice : list[str]
-    agent1_count : int
-    agent2_count : int
+    agent_1_choice : list[str]
+    agent_2_choice : list[str]
+    agent_1_count : int
+    agent_2_count : int
     
 
 graph_builder = StateGraph(State)
@@ -25,23 +26,23 @@ def Agent1(state: State):
     messages = llm.invoke(state["messages"])
     if isinstance(messages, str):
         response= json.loads(messages)
-    return {"agent_choice": state["agent_choice"] + [response["agent_choice"]]}
+    return {"agent_1_choice": state["agent_1_choice"] + [response["agent_choice"]]}
 
 def Agent2(state: State):
     messages = llm.invoke(state["messages"])
     if isinstance(messages, str):
         response= json.loads(messages)
-    return {"agent_choice": state["agent_choice"] + [response["agent_choice"]]}
+    return {"agent_2_choice": state["agent_2_choice"] + [response["agent_choice"]]}
 
 def count(state: State):
-    if state["agent_choice"][-2] == "COOPERATE" and state["agent_choice"][-1] == "COOPERATE":
-        return {"agent1_count": state["agent1_count"] + 1, "agent2_count": state["agent2_count"] + 1}
-    if state["agent_choice"][-2] == "DEFECT" and state["agent_choice"][-1] == "COOPERATE":
-        return {"agent1_count": state["agent1_count"] + 2, "agent2_count": state["agent2_count"] + 0}
-    if state["agent_choice"][-2] == "COOPERATE" and state["agent_choice"][-1] == "DEFECT":
-        return {"agent1_count": state["agent1_count"] + 0, "agent2_count": state["agent2_count"] + 2}
-    if state["agent_choice"][-2] == "DEFECT" and state["agent_choice"][-1] == "DEFECT":
-        return {"agent1_count": state["agent1_count"] + 3, "agent2_count": state["agent2_count"] + 3}
+    if state["agent_1_choice"][-1] == "COOPERATE" and state["agent_2_choice"][-1] == "COOPERATE":
+        return {"agent_1_count": state["agent_1_count"] + 1, "agent_2_count": state["agent_2_count"] + 1}
+    if state["agent_1_choice"][-1] == "DEFECT" and state["agent_2_choice"][-1] == "COOPERATE":
+        return {"agent_1_count": state["agent_1_count"] + 2, "agent_2_count": state["agent_2_count"] + 0}
+    if state["agent_1_choice"][-1] == "COOPERATE" and state["agent_2_choice"][-1] == "DEFECT":
+        return {"agent_1_count": state["agent_1_count"] + 0, "agent_2_count": state["agent_2_count"] + 2}
+    if state["agent_1_choice"][-1] == "DEFECT" and state["agent_2_choice"][-1] == "DEFECT":
+        return {"agent_1_count": state["agent_1_count"] + 3, "agent_2_count": state["agent_2_count"] + 3}
     
 
 graph_builder.add_node("Agent1", Agent1)
@@ -56,10 +57,9 @@ graph = graph_builder.compile()
 
 
 def stream_graph_updates(user_input: str):
-    for event in graph.stream({"messages": [{"role": "user", "content": user_input}], "agent_choice": [], "agent1_count": 0, "agent2_count": 0}):
+    for event in graph.stream({"messages": [{"role": "user", "content": user_input}], "agent_1_choice": [], "agent_2_choice": [], "agent_1_count": 0, "agent_2_count": 0}):
         for value in event.values():
             print("Agents choices:", value)
-
 
 while True:
     try:
