@@ -1,13 +1,10 @@
-from langgraph.prebuilt import create_react_agent
 from langchain_ollama.llms import OllamaLLM
-from langchain_core.tools import tool
 from langgraph.graph import START, END, StateGraph, MessagesState
-from typing import Annotated, TypedDict, Union
-from langgraph.graph.message import add_messages, AnyMessage
+from typing import TypedDict
 from langgraph.checkpoint.memory import InMemorySaver
-from prompt import game_prompt, good_player_prompt, bad_player_prompt
+from prompt import good_player_prompt, bad_player_prompt
 import json
-from operator import add
+
 
 # model setup
 model = "mistral:latest"
@@ -49,7 +46,7 @@ subgraph_builder.add_edge("Agent2", END)
 subgraph = subgraph_builder.compile(checkpointer=checkpointer)
 
 # graph state setup
-class ParentState(MessagesState):
+class ParentState(TypedDict):
     agent_1_choice_parent : list[str]
     agent_2_choice_parent : list[str]
     
@@ -65,28 +62,17 @@ def transform(state: ParentState):
     return {"agent_1_choice_parent": response["agent_1_choice"], "agent_2_choice_parent": response["agent_2_choice"]}  
 
 
-
 graph_builder = StateGraph(ParentState)
 graph_builder.add_node("transform", transform)
 graph_builder.add_edge(START, "transform")
 graph_builder.add_edge("transform", END)
 graph = graph_builder.compile(checkpointer=checkpointer)
 
-
-def stream_graph_updates(user_input: str):
-    for event in graph.stream({"messages": [{"role": "user", "content": user_input}], "agent_1_choice_parent": [], "agent_2_choice_parent": []},
-     subgraphs=True, config=config):
+def run_game():
+    for event in graph.stream({ 
+        "agent_1_choice_parent": [], 
+        "agent_2_choice_parent": []
+    }, subgraphs=True, config=config):
         print(event)
 
-
-while True:
-    try:
-        user_input = input("User: ")
-        if user_input.lower() in ["quit", "exit", "q"]:
-            print("Goodbye!")
-            break
-        if user_input.lower() in ["let's play", "let's play!", "play"]:
-            stream_graph_updates(user_input=game_prompt)
-    except KeyboardInterrupt:
-        print("Goodbye!!")
-        break
+run_game()
