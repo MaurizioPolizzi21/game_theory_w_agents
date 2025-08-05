@@ -17,14 +17,14 @@ llm = OllamaLLM(model=model)
 checkpointer = InMemorySaver()
 config = { "configurable": { "thread_id": "1" } }
 
-# child state setup
+# subgraph state setup
 class SubgraphState(TypedDict):
     agent_1_prompt: str
     agent_1_choice: list[str]
     agent_2_prompt: str
     agent_2_choice: list[str]
 
-
+# subgraph nodes setup
 def Agent1(state: SubgraphState):
     messages = llm.invoke(state["agent_1_prompt"])
     if isinstance(messages, str):
@@ -37,6 +37,7 @@ def Agent2(state: SubgraphState):
         response= json.loads(messages)
     return {"agent_2_choice": state["agent_2_choice"] + [response["agent_choice"]]}
 
+# subgraph setup
 subgraph_builder = StateGraph(SubgraphState)
 subgraph_builder.add_node("Agent1", Agent1)
 subgraph_builder.add_node("Agent2", Agent2)
@@ -47,12 +48,12 @@ subgraph_builder.add_edge("Agent1", END)
 subgraph_builder.add_edge("Agent2", END)
 subgraph = subgraph_builder.compile(checkpointer=checkpointer)
 
-# parent state setup
+# graph state setup
 class ParentState(MessagesState):
     agent_1_choice_parent : list[str]
     agent_2_choice_parent : list[str]
     
-
+# graph node setup
 def transform(state: ParentState):
     response = subgraph.invoke({"agent_1_choice": state["agent_1_choice_parent"], "agent_2_choice": state["agent_2_choice_parent"], "agent_1_prompt": good_player_prompt, "agent_2_prompt": bad_player_prompt}, config=config)
     print("Subgraph State History:")
