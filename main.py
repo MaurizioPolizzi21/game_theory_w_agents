@@ -40,8 +40,10 @@ def Agent2(state: SubgraphState):
 subgraph_builder = StateGraph(SubgraphState)
 subgraph_builder.add_node("Agent1", Agent1)
 subgraph_builder.add_node("Agent2", Agent2)
+# adding parallel edges
 subgraph_builder.add_edge(START, "Agent1")
-subgraph_builder.add_edge("Agent1", "Agent2")
+subgraph_builder.add_edge(START, "Agent2")
+subgraph_builder.add_edge("Agent1", END)
 subgraph_builder.add_edge("Agent2", END)
 subgraph = subgraph_builder.compile(checkpointer=checkpointer)
 
@@ -55,13 +57,7 @@ def transform(state: ParentState):
     response = subgraph.invoke({"agent_1_choice": state["agent_1_choice_parent"], "agent_2_choice": state["agent_2_choice_parent"], "agent_1_prompt": good_player_prompt, "agent_2_prompt": bad_player_prompt}, config=config)
     print("Subgraph State History:")
     print("\n")
-    state_history = list(subgraph.get_state_history(config))
-    for snapshot in state_history:
-        if snapshot.metadata.get('step') == 1:  # Only print step 1
-            print(f"Step {snapshot.metadata.get('step')}: {snapshot}")
-            print("\n")
-    print("Subgraph State History End")
-    print("\n")
+    print(list(subgraph.get_state_history(config)))
     print("\n")
     print("Subgraph State History End")
     print("\n")
@@ -78,7 +74,7 @@ graph = graph_builder.compile(checkpointer=checkpointer)
 
 def stream_graph_updates(user_input: str):
     for event in graph.stream({"messages": [{"role": "user", "content": user_input}], "agent_1_choice_parent": [], "agent_2_choice_parent": []},
-     subgraphs=True, stream_mode="updates", config=config):
+     subgraphs=True, config=config):
         print(event)
 
 
