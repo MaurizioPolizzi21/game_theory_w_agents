@@ -43,7 +43,7 @@ subgraph_builder.add_node("Agent2", Agent2)
 subgraph_builder.add_edge(START, "Agent1")
 subgraph_builder.add_edge("Agent1", "Agent2")
 subgraph_builder.add_edge("Agent2", END)
-subgraph = subgraph_builder.compile()
+subgraph = subgraph_builder.compile(checkpointer=checkpointer)
 
 # parent state setup
 class ParentState(MessagesState):
@@ -53,6 +53,18 @@ class ParentState(MessagesState):
 
 def transform(state: ParentState):
     response = subgraph.invoke({"agent_1_choice": state["agent_1_choice_parent"], "agent_2_choice": state["agent_2_choice_parent"], "agent_1_prompt": good_player_prompt, "agent_2_prompt": bad_player_prompt}, config=config)
+    print("Subgraph State History:")
+    print("\n")
+    state_history = list(subgraph.get_state_history(config))
+    for snapshot in state_history:
+        if snapshot.metadata.get('step') == 1:  # Only print step 1
+            print(f"Step {snapshot.metadata.get('step')}: {snapshot}")
+            print("\n")
+    print("Subgraph State History End")
+    print("\n")
+    print("\n")
+    print("Subgraph State History End")
+    print("\n")
     return {"agent_1_choice_parent": response["agent_1_choice"], "agent_2_choice_parent": response["agent_2_choice"]}  
 
 
@@ -65,8 +77,8 @@ graph = graph_builder.compile(checkpointer=checkpointer)
 
 
 def stream_graph_updates(user_input: str):
-    for event in graph.stream({"messages": [{"role": "user", "content": user_input}], "agent_1_choice_parent": [], "agent_2_choice_parent": []},subgraphs=True,stream_mode="updates", config=config):
-        graph.get_state(config=config)
+    for event in graph.stream({"messages": [{"role": "user", "content": user_input}], "agent_1_choice_parent": [], "agent_2_choice_parent": []},
+     subgraphs=True, stream_mode="updates", config=config):
         print(event)
 
 
@@ -76,7 +88,7 @@ while True:
         if user_input.lower() in ["quit", "exit", "q"]:
             print("Goodbye!")
             break
-        if user_input.lower() in ["let's play", "let's play!"]:
+        if user_input.lower() in ["let's play", "let's play!", "play"]:
             stream_graph_updates(user_input=game_prompt)
     except KeyboardInterrupt:
         print("Goodbye!!")
