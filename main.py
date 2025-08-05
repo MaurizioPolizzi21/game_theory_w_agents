@@ -1,10 +1,9 @@
 from langchain_ollama.llms import OllamaLLM
-from langgraph.graph import START, END, StateGraph, MessagesState
+from langgraph.graph import START, END, StateGraph
 from typing import TypedDict
 from langgraph.checkpoint.memory import InMemorySaver
 from prompt import good_player_prompt, bad_player_prompt
 import json
-
 
 # model setup
 model = "mistral:latest"
@@ -18,21 +17,45 @@ config = { "configurable": { "thread_id": "1" } }
 class SubgraphState(TypedDict):
     agent_1_prompt: str
     agent_1_choice: list[str]
+    agent_1_counter: int
     agent_2_prompt: str
     agent_2_choice: list[str]
+    agent_2_counter: int
 
 # subgraph nodes setup
 def Agent1(state: SubgraphState):
+    """
+    Node Agent1 invokes the model with the prompt set in the state's
+    "agent_1_prompt" key. The response is added to the list of
+    "agent_1_choice" with the current counter value incremented by 1.
+    """
     messages = llm.invoke(state["agent_1_prompt"])
     if isinstance(messages, str):
         response= json.loads(messages)
-    return {"agent_1_choice": state["agent_1_choice"] + [response["agent_choice"]]}
+    return {"agent_1_choice": state["agent_1_choice"] + [response["agent_choice"]], "agent_1_counter": state["agent_1_counter"] + 1}
 
 def Agent2(state: SubgraphState):
+    """
+    Node Agent2 invokes the model with the prompt set in the state's
+    "agent_2_prompt" key. The response is added to the list of
+    "agent_2_choice" with the current counter value incremented by 1.
+    """
     messages = llm.invoke(state["agent_2_prompt"])
     if isinstance(messages, str):
         response= json.loads(messages)
-    return {"agent_2_choice": state["agent_2_choice"] + [response["agent_choice"]]}
+    return {"agent_2_choice": state["agent_2_choice"] + [response["agent_choice"]], "agent_2_counter": state["agent_2_counter"] + 1}
+
+
+def should_continue(state: SubgraphState) -> str:
+    """This node checks if each agent has made 5 attempts.
+
+    If either agent has fewer than 5 attempts, it returns 'loop' to continue.
+    If both agents have made 5 attempts, it returns 'exit' to terminate.
+    """
+    if state["agent_1_counter"] < 5 or state["agent_2_counter"] < 5:
+        return "loop"
+    else:
+        return "exit"
 
 # subgraph setup
 subgraph_builder = StateGraph(SubgraphState)
@@ -41,8 +64,18 @@ subgraph_builder.add_node("Agent2", Agent2)
 # adding parallel edges
 subgraph_builder.add_edge(START, "Agent1")
 subgraph_builder.add_edge(START, "Agent2")
-subgraph_builder.add_edge("Agent1", END)
-subgraph_builder.add_edge("Agent2", END)
+subgraph_builder.add_conditional_edges("Agent1",
+                                should_continue,
+                                {
+                                    "loop": "Agent1",  # If 'loop', repeat the loop
+                                    "exit": END,       # If 'exit', terminate the workflow
+                                })
+subgraph_builder.add_conditional_edges("Agent2",
+                                should_continue,
+                                {
+                                    "loop": "Agent2",  # If 'loop', repeat the loop
+                                    "exit": END,       # If 'exit', terminate the workflow
+                                })
 subgraph = subgraph_builder.compile(checkpointer=checkpointer)
 
 # graph state setup
@@ -52,7 +85,10 @@ class ParentState(TypedDict):
     
 # graph node setup
 def transform(state: ParentState):
-    response = subgraph.invoke({"agent_1_choice": state["agent_1_choice_parent"], "agent_2_choice": state["agent_2_choice_parent"], "agent_1_prompt": good_player_prompt, "agent_2_prompt": bad_player_prompt}, config=config)
+    response = subgraph.invoke({"agent_1_choice": state["agent_1_choice_parent"], 
+    "agent_2_choice": state["agent_2_choice_parent"], "agent_1_prompt": good_player_prompt,
+    "agent_2_prompt": bad_player_prompt, "agent_1_counter": 1, "agent_2_counter": 1}, config=config)
+
     print("Subgraph State History:")
     print("\n")
     print(list(subgraph.get_state_history(config)))
