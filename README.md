@@ -38,6 +38,7 @@ This implementation uses **LangGraph** to create a sophisticated multi-agent sys
    - Sequential execution with controlled iteration loops
    - Each agent can make up to 5 decisions per game session
    - State management tracks choices and counters for both agents
+   - Each agent can see the other agent's choices and counters but **not the other agent's prompt**
 
 3. **LangGraph Framework**:
    - **Subgraph**: Manages individual agent interactions and game flow
