@@ -13,7 +13,22 @@ llm = OllamaLLM(model=model)
 checkpointer = InMemorySaver()
 config = { "configurable": { "thread_id": "1" } }
 
-# subgraph state setup
+# Individual agent state classes for prompt isolation
+class SubgraphStateAgent1(TypedDict):
+    agent_1_prompt: str
+    agent_1_choice: list[str]
+    agent_1_counter: int
+    agent_2_choice: list[str]
+    agent_2_counter: int
+
+class SubgraphStateAgent2(TypedDict):
+    agent_2_prompt: str
+    agent_1_choice: list[str]
+    agent_1_counter: int
+    agent_2_choice: list[str]
+    agent_2_counter: int
+
+# Main subgraph state setup
 class SubgraphState(TypedDict):
     agent_1_prompt: str
     agent_1_choice: list[str]
@@ -22,27 +37,48 @@ class SubgraphState(TypedDict):
     agent_2_choice: list[str]
     agent_2_counter: int
 
-# subgraph nodes setup
+# subgraph nodes setup with prompt masking
 def Agent1(state: SubgraphState):
     """
-    Node Agent1 invokes the model with the prompt set in the state's
-    "agent_1_prompt" key. The response is added to the list of
-    "agent_1_choice" with the current counter value incremented by 1.
+    Node Agent1 invokes the LLM with its own prompt. It can see:
+    - Its own prompt (agent_1_prompt)
+    - Both agents' choices and counters
+    - But NOT agent_2_prompt (masked)
     """
-    messages = llm.invoke(state["agent_1_prompt"])
+    # Create masked state for Agent1, so he can't see agent_2_prompt
+    masked_state: SubgraphStateAgent1 = {
+        "agent_1_prompt": state["agent_1_prompt"],
+        "agent_1_choice": state["agent_1_choice"],
+        "agent_1_counter": state["agent_1_counter"],
+        "agent_2_choice": state["agent_2_choice"],  # He can see the other agent's choices
+        "agent_2_counter": state["agent_2_counter"]
+    
+    }
+    
+    messages = llm.invoke(masked_state["agent_1_prompt"])
     if isinstance(messages, str):
-        response= json.loads(messages)
+        response = json.loads(messages)
     return {"agent_1_choice": state["agent_1_choice"] + [response["agent_choice"]], "agent_1_counter": state["agent_1_counter"] + 1}
 
 def Agent2(state: SubgraphState):
     """
-    Node Agent2 invokes the model with the prompt set in the state's
-    "agent_2_prompt" key. The response is added to the list of
-    "agent_2_choice" with the current counter value incremented by 1.
+    Node Agent2 invokes the LLM with its own prompt. It can see:
+    - Its own prompt (agent_2_prompt)
+    - Both agents' choices and counters
+    - But NOT agent_1_prompt (masked)
     """
-    messages = llm.invoke(state["agent_2_prompt"])
+    # Create masked state for Agent2, so he can't see agent_1_prompt
+    masked_state: SubgraphStateAgent2 = {
+        "agent_2_prompt": state["agent_2_prompt"],
+        "agent_1_choice": state["agent_1_choice"],  # He can see the other agent's choices
+        "agent_1_counter": state["agent_1_counter"],
+        "agent_2_choice": state["agent_2_choice"],
+        "agent_2_counter": state["agent_2_counter"]
+    }
+    
+    messages = llm.invoke(masked_state["agent_2_prompt"])
     if isinstance(messages, str):
-        response= json.loads(messages)
+        response = json.loads(messages)
     return {"agent_2_choice": state["agent_2_choice"] + [response["agent_choice"]], "agent_2_counter": state["agent_2_counter"] + 1}
 
 
