@@ -2,31 +2,16 @@ from langchain_ollama.llms import OllamaLLM
 from langgraph.graph import START, END, StateGraph
 from typing import TypedDict
 from langgraph.checkpoint.memory import InMemorySaver
-from prompt import good_player_prompt, bad_player_prompt
+from prompt import good_player_prompt, bad_player_prompt, payoff_agent_prompt
 import json
 
 # model setup
 model = "mistral:latest"
-llm = OllamaLLM(model=model)
+llm = OllamaLLM(model=model, temperature=0.4)
 
 #memory setup
 checkpointer = InMemorySaver()
 config = { "configurable": { "thread_id": "1" } }
-
-# Individual agent state classes for prompt isolation
-class SubgraphStateAgent1(TypedDict):
-    agent_1_prompt: str
-    agent_1_choice: list[str]
-    agent_1_counter: int
-    agent_2_choice: list[str]
-    agent_2_counter: int
-
-class SubgraphStateAgent2(TypedDict):
-    agent_2_prompt: str
-    agent_1_choice: list[str]
-    agent_1_counter: int
-    agent_2_choice: list[str]
-    agent_2_counter: int
 
 # Main subgraph state setup
 class SubgraphState(TypedDict):
@@ -40,47 +25,32 @@ class SubgraphState(TypedDict):
 # subgraph nodes setup with prompt masking
 def Agent1(state: SubgraphState):
     """
-    Node Agent1 invokes the LLM with its own prompt. It can see:
-    - Its own prompt (agent_1_prompt)
-    - Both agents' choices and counters
-    - But NOT agent_2_prompt (masked)
+    Agent1 node with prompt masking.
+
+    This node takes in the current state of the subgraph and returns a new state with the agent's latest choice.
+    The agent is given the other agent's latest choices as context.
     """
-    # Create masked state for Agent1, so he can't see agent_2_prompt
-    masked_state: SubgraphStateAgent1 = {
-        "agent_1_prompt": state["agent_1_prompt"],
-        "agent_1_choice": state["agent_1_choice"],
-        "agent_1_counter": state["agent_1_counter"],
-        "agent_2_choice": state["agent_2_choice"],  # He can see the other agent's choices
-        "agent_2_counter": state["agent_2_counter"]
-    
-    }
-    
-    messages = llm.invoke(masked_state["agent_1_prompt"])
+    prompt_with_data = f"""{state['agent_1_prompt']}\n\n
+    Your opponent's latest choices is/are : {state['agent_2_choice']}"""
+    messages = llm.invoke(prompt_with_data)
     if isinstance(messages, str):
         response = json.loads(messages)
     return {"agent_1_choice": state["agent_1_choice"] + [response["agent_choice"]], "agent_1_counter": state["agent_1_counter"] + 1}
 
 def Agent2(state: SubgraphState):
     """
-    Node Agent2 invokes the LLM with its own prompt. It can see:
-    - Its own prompt (agent_2_prompt)
-    - Both agents' choices and counters
-    - But NOT agent_1_prompt (masked)
+    Agent2 node with prompt masking.
+
+    This node takes in the current state of the subgraph and returns a new state with the agent's latest choice.
+    The agent is given the other agent's latest choices as context.
     """
-    # Create masked state for Agent2, so he can't see agent_1_prompt
-    masked_state: SubgraphStateAgent2 = {
-        "agent_2_prompt": state["agent_2_prompt"],
-        "agent_1_choice": state["agent_1_choice"],  # He can see the other agent's choices
-        "agent_1_counter": state["agent_1_counter"],
-        "agent_2_choice": state["agent_2_choice"],
-        "agent_2_counter": state["agent_2_counter"]
-    }
-    
-    messages = llm.invoke(masked_state["agent_2_prompt"])
+    prompt_with_data = f"""{state['agent_2_prompt']}\n\n
+    Your opponent's latest choices is/are : {state['agent_1_choice']}"""
+    messages = llm.invoke(prompt_with_data)
     if isinstance(messages, str):
         response = json.loads(messages)
     return {"agent_2_choice": state["agent_2_choice"] + [response["agent_choice"]], "agent_2_counter": state["agent_2_counter"] + 1}
-
+    
 
 def should_continue(state: SubgraphState) -> str:
     """This node checks if each agent has made 5 attempts.
@@ -118,32 +88,51 @@ subgraph = subgraph_builder.compile(checkpointer=checkpointer)
 class ParentState(TypedDict):
     agent_1_choice_parent : list[str]
     agent_2_choice_parent : list[str]
+    payoff_agent_prompt : str
+    payoffs: str
     
 # graph node setup
-def transform(state: ParentState):
-    response = subgraph.invoke({"agent_1_choice": state["agent_1_choice_parent"], 
+def get_subgraph_output(state: ParentState):
+    output_subgraph = subgraph.invoke({"agent_1_choice": state["agent_1_choice_parent"], 
     "agent_2_choice": state["agent_2_choice_parent"], "agent_1_prompt": good_player_prompt,
     "agent_2_prompt": bad_player_prompt, "agent_1_counter": 1, "agent_2_counter": 1}, config=config)
 
-    print("Subgraph State History:")
-    print("\n")
-    print(list(subgraph.get_state_history(config)))
-    print("\n")
-    print("Subgraph State History End")
-    print("\n")
-    return {"agent_1_choice_parent": response["agent_1_choice"], "agent_2_choice_parent": response["agent_2_choice"]}  
+    # print("Subgraph State History:")
+    # print("\n")
+    # print(list(subgraph.get_state_history(config)))
+    # print("\n")
+    # print("Subgraph State History End")
+    # print("\n")
+    return {"agent_1_choice_parent": output_subgraph["agent_1_choice"], "agent_2_choice_parent": output_subgraph["agent_2_choice"]} 
+
+
+def get_payoff(state: ParentState):
+    empty_list = []
+    for i in range(len(state["agent_1_choice_parent"])):
+        for j in range(len(state["agent_2_choice_parent"])):
+            if i == j:
+                empty_list.append((state["agent_1_choice_parent"][i], state["agent_2_choice_parent"][j]))
+            else:
+                continue
+    prompt_with_data = f"""{state['payoff_agent_prompt']}\n
+    Current choices:\n{empty_list}"""
+    output_payoff = llm.invoke(prompt_with_data)
+    return {"payoffs": output_payoff}
 
 
 graph_builder = StateGraph(ParentState)
-graph_builder.add_node("transform", transform)
-graph_builder.add_edge(START, "transform")
-graph_builder.add_edge("transform", END)
+graph_builder.add_node("get_subgraph_output", get_subgraph_output)
+graph_builder.add_node("get_payoff", get_payoff)
+graph_builder.add_edge(START, "get_subgraph_output")
+graph_builder.add_edge("get_subgraph_output", "get_payoff")
+graph_builder.add_edge("get_payoff", END)
 graph = graph_builder.compile(checkpointer=checkpointer)
 
 def run_game():
     for event in graph.stream({ 
         "agent_1_choice_parent": [], 
-        "agent_2_choice_parent": []
+        "agent_2_choice_parent": [],
+        "payoff_agent_prompt": payoff_agent_prompt,
     }, subgraphs=True, config=config):
         print(event)
 
