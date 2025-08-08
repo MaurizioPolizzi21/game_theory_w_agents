@@ -1,83 +1,93 @@
 # Game Theory with AI Agents
 
-A computational implementation of the classic Prisoner's Dilemma using AI agents powered by LangGraph and Large Language Models.
+A computational implementation of the classic Prisoner's Dilemma using AI agents powered by LangGraph and Ollama LLM.
 
 ## Overview
 
-This project explores game theory concepts through the lens of artificial intelligence by simulating the famous Prisoner's Dilemma scenario. Two AI agents make strategic decisions (cooperate or defect) in an iterative game environment, allowing us to study emergent behaviors, strategic thinking, and decision-making patterns in multi-agent systems.
+This project simulates the famous Prisoner's Dilemma using two AI agents with distinct strategic personalities. The implementation uses LangGraph for multi-agent orchestration and Ollama's Mistral model for decision-making, creating an environment where agents can interact over multiple rounds while maintaining memory of previous choices.
 
 ## The Prisoner's Dilemma
 
-The Prisoner's Dilemma is a fundamental concept in game theory that illustrates why rational individuals might not cooperate even when it's in their mutual interest. In this scenario:
+In this implementation, two agents are arrested and must choose between **COOPERATE** (stay silent) or **DEFECT** (betray the other) without communication.
 
-- **Two players** must simultaneously choose to either **cooperate** or **defect**
-- **Mutual cooperation** yields moderate rewards for both
-- **Mutual defection** results in poor outcomes for both
-- **One defects, one cooperates**: the defector gets the highest reward, the cooperator gets the worst outcome
+### Payoff Structure
+- **Both COOPERATE**: Both get -1 (moderate sentence)
+- **Both DEFECT**: Both get -3 (harsh sentence)
+- **One COOPERATES, one DEFECTS**: Cooperator gets -2 (heavy sentence), Defector gets 0 (goes free)
 
 ### Payoff Matrix
 ```
-                Player 2
+                Agent 2
               C       D
-Player 1  C  (3,3)   (0,5)
-          D  (5,0)   (1,1)
+Agent 1   C  (-1,-1) (-2,0)
+          D  (0,-2)  (-3,-3)
 ```
 
 ## Project Architecture
 
-This implementation uses **LangGraph** to create a sophisticated multi-agent system where:
+The system uses a **two-tier LangGraph architecture** with distinct state management for game orchestration and agent interactions.
 
 ### Core Components
 
-1. **AI Agents**: Two distinct agents with different strategic approaches
-   - Each agent uses a Large Language Model (LLM) for decision-making
-   - Agents maintain memory of previous interactions
-   - Strategic prompts guide agent behavior (currently under development)
+#### 1. Agent Personalities
+- **Good Player Agent**: Strategic, rational player who considers mutual benefit and long-term outcomes
+- **Bad Player Agent**: Selfish, short-sighted player who always seeks individual advantage
+- Both agents receive opponent's choice history but **not the opponent's prompt/strategy**
 
-2. **Game Engine**: 
-   - Sequential execution with controlled iteration loops
-   - Each agent can make up to 5 decisions per game session
-   - State management tracks choices and counters for both agents
-   - Each agent can see the other agent's choices and counters but **not the other agent's prompt**
+#### 2. Dual-Graph Architecture
 
-3. **LangGraph Framework**:
-   - **Subgraph**: Manages individual agent interactions and game flow
-   - **Main Graph**: Orchestrates the overall game session
-   - **State Management**: Tracks agent choices, counters, and game history
+**Subgraph (Agent Interaction Layer)**:
+- **State**: `SubgraphState` tracks individual choices, counters, and prompts
+- **Nodes**: `Agent1()` and `Agent2()` functions for decision-making
+- **Flow Control**: `should_continue()` manages the 5-round limit per game
+- **Loop Logic**: Continues until both agents complete 5 decisions
 
-### Technical Implementation
+**Main Graph (Game Orchestration Layer)**:
+- **State**: `ParentState` manages overall game data and payoff calculations
+- **Nodes**: 
+  - `get_subgraph_output()`: Executes the agent subgraph and collects results
+  - `get_payoff()`: Calculates total payoffs using the payoff agent
+- **Flow**: Linear execution from subgraph → payoff calculation
 
-- **AI Framework**: LangGraph for multi-agent orchestration
-- **LLM**: Ollama with Mistral model for agent decision-making
-- **Memory**: In-memory checkpointing for game session persistence
+#### 3. Technical Stack
+- **LLM**: Ollama Mistral (temperature: 0.4) for consistent decision-making
+- **Memory**: InMemorySaver with thread-based checkpointing
+- **Output Format**: JSON-structured agent responses
+- **Payoff Agent**: Dedicated LLM agent for calculating game outcomes
 
 ## File Structure
 
 ```
-├── main.py                    # Main game implementation
-├── prompt.py                  # Agent prompt definitions (under development)
+├── main.py                    # Complete game implementation with dual-graph architecture
+├── prompt.py                  # Agent prompt definitions (good_player, bad_player, payoff_agent)
 ├── graph_visualization.ipynb  # Jupyter notebook for graph visualization
-└── README.md                  # This file
+└── README.md                  # This documentation
 ```
 
 ## Key Features
 
-- **Iterative Gameplay**: Agents play multiple rounds, building strategic understanding
-- **Memory Persistence**: Game state is maintained across interactions
-- **Configurable Agents**: Different prompting strategies can be tested
-- **Visual Graph Representation**: LangGraph provides clear visualization of agent interactions
-- **Extensible Design**: Framework allows for easy modification of game rules and agent behaviors
+- **Dual Personality Agents**: Contrasting strategic approaches (rational vs. selfish)
+- **5-Round Game Sessions**: Fixed iteration count with automatic termination
+- **Choice History Tracking**: Agents see opponent's previous decisions for strategic adaptation
+- **Automated Payoff Calculation**: Dedicated LLM agent computes total scores
+- **Prompt Masking**: Agents know opponent choices but not opponent strategies
+- **Memory Persistence**: InMemorySaver maintains game state throughout execution
+- **JSON-Structured Communication**: Standardized agent response format
 
-## Current Development Status
+## Implementation Details
 
-🚧 **Work in Progress** 🚧
+### Game Flow
+1. **Initialization**: Set up dual-graph architecture with agent prompts
+2. **Subgraph Execution**: Agents alternate decisions for 5 rounds each
+3. **Choice Aggregation**: Collect all agent decisions from subgraph
+4. **Payoff Calculation**: Process choice pairs through payoff agent
+5. **Results Output**: Display final scores and game summary
 
-This project is actively under development. Current focus areas include:
-
-- **Agent Prompt Engineering**: Refining the strategic prompts that guide agent decision-making
-- **Behavioral Analysis**: Studying patterns in agent choices and strategies
-- **Game Variations**: Exploring different payoff matrices and game rules
-- **Performance Metrics**: Implementing analysis tools for strategy effectiveness
+### Agent Decision Process
+- Each agent receives their base prompt + opponent's choice history
+- LLM processes strategic context and returns JSON-formatted choice
+- Choices are validated and added to the running game state
+- Counter increments track progress toward 5-decision limit
 
 ## Future Directions
 
@@ -93,8 +103,11 @@ Potential expansions and research directions:
 
 ### Prerequisites
 - Python 3.8+
-- Ollama with Mistral model
-- Required Python packages (see imports in main.py)
+- Ollama with Mistral model installed and running
+- Required Python packages:
+  ```bash
+  pip install langchain-ollama langgraph
+  ```
 
 ### Running the Game
 ```bash
