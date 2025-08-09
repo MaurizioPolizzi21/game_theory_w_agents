@@ -18,17 +18,21 @@ This projects tries to replicate Robert Axelrod’s Prisoner’s Dilemma tournam
 In this implementation, two agents are arrested and must choose between **COOPERATE** (stay silent) or **DEFECT** (betray the other) without communication.
 
 ### Payoff Structure
-- **Both COOPERATE**: Both get -1 (moderate sentence)
-- **Both DEFECT**: Both get -3 (harsh sentence)
-- **One COOPERATES, one DEFECTS**: Cooperator gets -2 (heavy sentence), Defector gets 0 (goes free)
+- **Both COOPERATE**: Both get 3 points (reward for mutual cooperation)
+- **Both DEFECT**: Both get 1 point (punishment for mutual defection)
+- **One COOPERATES, one DEFECTS**: Cooperator gets 0 points (sucker's payoff), Defector gets 5 points (temptation payoff)
 
 ### Payoff Matrix
 ```
                 Agent 2
               C       D
-Agent 1   C  (-1,-1) (-2,0)
-          D  (0,-2)  (-3,-3)
+Agent 1   C  (3,3)   (0,5)
+          D  (5,0)   (1,1)
 ```
+
+This creates the classic Prisoner's Dilemma tension:
+- **Temptation (5)** > **Reward (3)** > **Punishment (1)** > **Sucker's payoff (0)**
+- Individual incentive to defect, but mutual cooperation yields better outcomes than mutual defection
 
 ## Project Architecture
 
