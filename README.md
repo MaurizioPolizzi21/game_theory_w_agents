@@ -5,6 +5,13 @@ A computational implementation of the classic Prisoner's Dilemma using AI agents
 ## Overview
 
 This project simulates the famous Prisoner's Dilemma using two AI agents with distinct strategic personalities. The implementation uses LangGraph for multi-agent orchestration and Ollama's Mistral model for decision-making, creating an environment where agents can interact over multiple rounds while maintaining memory of previous choices.
+This projects tries to replicate Robert Axelrod’s Prisoner’s Dilemma tournaments in the late 1970s.
+
+### Key Insights from Axelrod
+- Being nice (never defect first) is critical.
+- Strategies that were clear and forgiving promoted cooperation and scored better.
+- Overly aggressive or overly random strategies lost in the long run.
+- Even in a competitive setting, mutual cooperation often beats constant exploitation.
 
 ## The Prisoner's Dilemma
 
