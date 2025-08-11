@@ -22,11 +22,9 @@ class SubgraphState(TypedDict):
     agent_2_choice: list[str]
     agent_2_counter: int
 
-# subgraph nodes setup with prompt masking
+# subgraph nodes setup
 def Agent1(state: SubgraphState):
     """
-    Agent1 node with prompt masking.
-
     This node takes in the current state of the subgraph and returns a new state with the agent's latest choice.
     The agent is given the other agent's latest choices as context.
     """
@@ -42,8 +40,6 @@ def Agent1(state: SubgraphState):
 
 def Agent2(state: SubgraphState):
     """
-    Agent2 node with prompt masking.
-
     This node takes in the current state of the subgraph and returns a new state with the agent's latest choice.
     The agent is given the other agent's latest choices as context.
     """
@@ -59,8 +55,8 @@ def Agent2(state: SubgraphState):
     
 
 def should_continue(state: SubgraphState) -> str:
-    """This node checks if each agent has made 5 attempts.
-
+    """
+    This node checks if each agent has made 5 attempts.
     If either agent has fewer than 5 attempts, it returns 'loop' to continue.
     If both agents have made 5 attempts, it returns 'exit' to terminate.
     """
