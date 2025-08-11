@@ -41,9 +41,9 @@ The system uses a **two-tier LangGraph architecture** with distinct state manage
 ### Core Components
 
 #### 1. Agent Personalities
-- **Good Player Agent**: Strategic, rational player who considers mutual benefit and long-term outcomes
-- **Bad Player Agent**: Selfish, short-sighted player who always seeks individual advantage
-- Both agents receive opponent's choice history but **not the opponent's prompt/strategy**
+- **Agent1**: Strategic, rational player who considers mutual benefit and long-term outcomes
+- **Agent2**: Random player who always makes random choices
+- Both agents receive opponent's **latest and second-latest choices** for enhanced strategic context
 
 #### 2. Dual-Graph Architecture
 
@@ -57,20 +57,20 @@ The system uses a **two-tier LangGraph architecture** with distinct state manage
 - **State**: `ParentState` manages overall game data and payoff calculations
 - **Nodes**: 
   - `get_subgraph_output()`: Executes the agent subgraph and collects results
-  - `get_payoff()`: Calculates total payoffs using the payoff agent
+  - `get_payoff()`: Calculates total payoffs using direct mathematical computation
 - **Flow**: Linear execution from subgraph → payoff calculation
 
 #### 3. Technical Stack
-- **LLM**: Ollama Mistral (temperature: 0.4) for consistent decision-making
+- **LLM**: Ollama Mistral (temperature: 0.5) for balanced decision-making
 - **Memory**: InMemorySaver with thread-based checkpointing
 - **Output Format**: JSON-structured agent responses
-- **Payoff Agent**: Dedicated LLM agent for calculating game outcomes
+- **Payoff Calculation**: Direct mathematical computation based on choice pairs
 
 ## File Structure
 
 ```
 ├── main.py                    # Complete game implementation with dual-graph architecture
-├── prompt.py                  # Agent prompt definitions (good_player, bad_player, payoff_agent)
+├── prompt.py                  # Agent prompt definitions (agent1_prompt, agent2_prompt)
 ├── graph_visualization.ipynb  # Jupyter notebook for graph visualization
 └── README.md                  # This documentation
 ```
@@ -79,8 +79,8 @@ The system uses a **two-tier LangGraph architecture** with distinct state manage
 
 - **Dual Personality Agents**: Contrasting strategic approaches (rational vs. selfish)
 - **5-Round Game Sessions**: Fixed iteration count with automatic termination
-- **Choice History Tracking**: Agents see opponent's previous decisions for strategic adaptation
-- **Automated Payoff Calculation**: Dedicated LLM agent computes total scores
+- **Enhanced Choice History**: Agents receive both latest and second-latest opponent choices for improved strategic adaptation
+- **Direct Payoff Calculation**: Mathematical computation of scores based on classic Prisoner's Dilemma payoff matrix
 - **Prompt Masking**: Agents know opponent choices but not opponent strategies
 - **Memory Persistence**: InMemorySaver maintains game state throughout execution
 - **JSON-Structured Communication**: Standardized agent response format
@@ -91,13 +91,14 @@ The system uses a **two-tier LangGraph architecture** with distinct state manage
 1. **Initialization**: Set up dual-graph architecture with agent prompts
 2. **Subgraph Execution**: Agents alternate decisions for 5 rounds each
 3. **Choice Aggregation**: Collect all agent decisions from subgraph
-4. **Payoff Calculation**: Process choice pairs through payoff agent
+4. **Payoff Calculation**: Direct mathematical computation using the payoff matrix
 5. **Results Output**: Display final scores and game summary
 
 ### Agent Decision Process
-- Each agent receives their base prompt + opponent's choice history
-- LLM processes strategic context and returns JSON-formatted choice
+- Each agent receives their base prompt + opponent's latest and second-latest choices
+- LLM processes enhanced strategic context and returns JSON-formatted choice
 - Choices are validated and added to the running game state
+- Agents start with counter = 1 and increment after each decision
 - Counter increments track progress toward 5-decision limit
 
 ## Future Directions
