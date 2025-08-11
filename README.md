@@ -1,6 +1,6 @@
 # Game Theory with AI Agents
 
-A computational implementation of the classic Prisoner's Dilemma using AI agents powered by LangGraph and Ollama LLM.
+Prisoner's Dilemma using AI agents powered by LangGraph and Ollama LLM.
 
 ## Overview
 
