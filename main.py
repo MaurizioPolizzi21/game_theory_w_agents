@@ -7,7 +7,7 @@ import json
 
 # model setup
 model = "mistral:latest"
-llm = OllamaLLM(model=model, temperature=0.5)
+llm = OllamaLLM(model=model, temperature=0.9)
 
 #memory setup
 checkpointer = InMemorySaver()
@@ -101,17 +101,6 @@ def get_subgraph_output(state: ParentState):
     output_subgraph = subgraph.invoke({"agent_1_choice": state["agent_1_choice_parent"], 
     "agent_2_choice": state["agent_2_choice_parent"], "agent_1_prompt": agent1_prompt,
     "agent_2_prompt": agent2_prompt, "agent_1_counter": 1, "agent_2_counter": 1}, config=config)
-
-    print("Subgraph State History:")
-    print("\n")
-    for event in subgraph.stream({"agent_1_choice": state["agent_1_choice_parent"], 
-    "agent_2_choice": state["agent_2_choice_parent"], "agent_1_prompt": agent1_prompt,
-    "agent_2_prompt": agent2_prompt, "agent_1_counter": 1, "agent_2_counter": 1}, config=config):
-        print(event)    
-    print("\n")
-    print("Subgraph State History End")
-    print("\n")
-
     return {"agent_1_choice_parent": output_subgraph["agent_1_choice"], "agent_2_choice_parent": output_subgraph["agent_2_choice"]} 
 
 
